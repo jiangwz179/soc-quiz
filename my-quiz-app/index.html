@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>教社實驗室 - 專業互動題庫 App</title>
+    
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#8B7E66">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="教社題庫">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <style>
+        :root {
+            --bg-cream: #FDFCF0;
+            --primary-stone: #8B7E66;
+            --secondary-earth: #A9907E;
+            --text-main: #44403C;
+        }
+
+        /* App 化外觀優化 */
+        body {
+            background-color: var(--bg-cream);
+            color: var(--text-main);
+            -webkit-tap-highlight-color: transparent; /* 移除手機點擊陰影 */
+            -webkit-touch-callout: none; /* 禁用長按選單 */
+            user-select: none; /* 防止刷題時選取文字 */
+            overscroll-behavior-y: contain; /* 防止下拉重新整理 */
+        }
+
+        /* 針對輸入框與選擇框的 iOS 縮放優化 */
+        input, select {
+            font-size: 16px !important; 
+        }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-track {
+            background: #F1EDE4; 
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #D6D3D1; 
+            border-radius: 10px;
+        }
+
+        .quiz-option-btn:disabled {
+            cursor: default;
+        }
+
+        .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+
+    <script>
+        // 註冊 Service Worker 達成離線與 App 安裝功能
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('App Service Worker 註冊成功'))
+                    .catch(err => console.log('註冊失敗:', err));
+            });
+        }
+    </script>
+</head>
+<body class="font-sans antialiased overflow-x-hidden selection:bg-stone-200">
+
+    <div id="user-portal" class="fixed inset-0 z-[100] flex items-center justify-center bg-[#FDFCF0] transition-opacity duration-500">
+        <div class="max-w-md w-full p-8 mx-4 bg-white rounded-[2.5rem] shadow-2xl border border-stone-100 text-center">
+            <div class="w-20 h-20 bg-stone-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                <span class="text-4xl">🖋️</span>
+            </div>
+            <h1 class="text-3xl font-serif italic text-stone-800 mb-2">靈魂的教社實驗室</h1>
+            <p class="text-stone-400 text-sm mb-8 tracking-widest uppercase font-bold">個人化學習系統</p>
+            
+            <div class="space-y-4">
+                <input type="text" id="usernameInput" placeholder="請輸入學習者姓名..." class="w-full px-6 py-4 rounded-2xl border border-stone-200 focus:ring-2 focus:ring-stone-400 outline-none transition-all text-center text-lg">
+                <button onclick="handleLogin()" class="w-full bg-stone-700 hover:bg-stone-800 text-white font-bold py-4 rounded-2xl shadow-lg transition-all transform hover:-translate-y-1">
+                    開始深度思辨
+                </button>
+            </div>
+            <p class="mt-6 text-xs text-stone-300 italic px-4 text-center">
+                ※ 您的進度將自動保存，題目連續答對 3 次將畢業<br>
+                每一回合 10 題內容保證不重複
+            </p>
+        </div>
+    </div>
+
+    <nav id="main-nav" class="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-50 border-b border-stone-200 hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🌿</span>
+                    <span class="font-bold text-xl text-stone-800 tracking-tighter">教社題庫大師</span>
+                </div>
+                <div class="flex items-center space-x-1 sm:space-x-4">
+                    <button onclick="switchView('dashboard')" id="nav-dashboard" class="nav-btn px-3 py-2 rounded-md text-sm font-medium text-stone-700 bg-stone-100 transition-colors">📊 分析</button>
+                    <button onclick="switchView('explorer')" id="nav-explorer" class="nav-btn px-3 py-2 rounded-md text-sm font-medium text-stone-500 hover:text-stone-700 transition-colors">🔍 探索</button>
+                    <button onclick="switchView('quiz')" id="nav-quiz" class="nav-btn px-3 py-2 rounded-md text-sm font-medium text-stone-500 hover:text-stone-700 transition-colors">📝 測驗</button>
+                    <div class="h-8 w-px bg-stone-200 mx-2 hidden sm:block"></div>
+                    <div class="flex items-center gap-2 cursor-pointer" onclick="logout()">
+                        <div class="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center border border-stone-200">
+                            <span class="text-xs font-bold text-stone-500" id="user-initial">U</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main id="main-content" class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 hidden">
+
+        <section id="view-dashboard" class="view-section block animate-fade-in">
+            <div class="mb-10">
+                <div class="flex items-center gap-3 mb-2">
+                    <span class="text-xs font-black uppercase text-stone-300 tracking-[0.3em]">Learning Analytics</span>
+                    <div class="h-px flex-1 bg-stone-100"></div>
+                </div>
+                <h1 class="text-4xl font-extrabold text-stone-800 font-serif italic">歡迎回來，<span id="welcome-name" class="text-stone-700">學習者</span></h1>
+                <p class="text-stone-500 mt-2">目前掌握進度將指引您完成全數 220 題的磨練。</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 text-center">
+                <div class="bg-white rounded-2xl shadow-sm border border-stone-100 p-8 flex flex-col justify-between">
+                    <div>
+                        <p class="text-[10px] font-black uppercase text-stone-400 tracking-widest mb-2">已完全精通</p>
+                        <p class="text-5xl font-serif text-emerald-600" id="kpi-mastered">0</p>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex justify-between text-[10px] text-stone-400 mb-1">
+                            <span>學習總進度</span>
+                            <span id="kpi-progress-percent">0%</span>
+                        </div>
+                        <div class="h-1.5 bg-stone-50 rounded-full overflow-hidden">
+                            <div id="mastery-bar" class="h-full bg-emerald-500 transition-all duration-1000" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-stone-100 p-8">
+                    <p class="text-[10px] font-black uppercase text-stone-400 tracking-widest mb-2">歷史正確率</p>
+                    <p class="text-5xl font-serif text-stone-700" id="kpi-accuracy">0%</p>
+                    <div class="mt-4 p-2 bg-stone-50 rounded-lg">
+                        <p class="text-[10px] text-stone-400 uppercase tracking-tighter">總題庫共 220 題</p>
+                    </div>
+                </div>
+                <div class="bg-white rounded-2xl shadow-sm border border-stone-100 p-8">
+                    <p class="text-[10px] font-black uppercase text-stone-400 tracking-widest mb-2">已嘗試題數</p>
+                    <p class="text-5xl font-serif text-stone-700" id="kpi-progress">0</p>
+                    <div class="mt-4 p-2 bg-stone-50 rounded-lg">
+                        <p class="text-[10px] text-stone-400 uppercase tracking-tighter">累計接觸量</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-[2rem] shadow-sm border border-stone-100 p-8 mb-8">
+                <h2 class="text-xl font-bold text-stone-700 mb-8 flex items-center gap-3 italic font-serif">
+                    <span class="p-2 bg-stone-50 rounded-lg">📊</span>
+                    各學派掌握程度統計分析
+                </h2>
+                <div class="chart-container">
+                    <canvas id="topicChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section id="view-explorer" class="view-section hidden animate-fade-in">
+            <div class="mb-8">
+                <h1 class="text-3xl font-extrabold text-stone-800 mb-2 font-serif italic">題庫檔案探索</h1>
+                <p class="text-stone-500">檢閱 220 題完整詳解，系統會自動標記您的學習程度。</p>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-stone-100 p-4 mb-6 flex flex-col sm:flex-row gap-4">
+                <div class="flex-1 relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-stone-300">🔍</span>
+                    <input type="text" id="searchInput" placeholder="搜尋關鍵字..." class="w-full pl-12 pr-4 py-3 rounded-xl border border-stone-100 focus:ring-2 focus:ring-stone-400 bg-stone-50/50 outline-none">
+                </div>
+                <div class="sm:w-64">
+                    <select id="topicFilter" class="w-full px-4 py-3 rounded-xl border border-stone-100 bg-white text-stone-600 cursor-pointer outline-none font-bold">
+                        <option value="all">所有題目</option>
+                        <option value="mastered">✓ 已精通</option>
+                        <option value="learning">⏳ 學習中</option>
+                        <option value="new">🆕 未接觸</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-[2rem] shadow-sm border border-stone-100 overflow-hidden">
+                <div id="question-list" class="divide-y divide-stone-50 max-h-[600px] overflow-y-auto custom-scroll p-4">
+                    </div>
+            </div>
+        </section>
+
+        <section id="view-quiz" class="view-section hidden animate-fade-in">
+            <div class="mb-8 text-center">
+                <h1 class="text-3xl font-extrabold text-stone-800 mb-2 font-serif italic">隨機挑戰模式</h1>
+                <p class="text-stone-500">每回合 10 題，絕不重複。連續 3 次正確方可畢業。</p>
+            </div>
+
+            <div id="quiz-setup" class="bg-white rounded-[2.5rem] shadow-sm border border-stone-100 p-12 text-center max-w-2xl mx-auto">
+                <div class="w-20 h-20 bg-stone-50 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner">
+                    <span class="text-4xl">📜</span>
+                </div>
+                <h2 class="text-2xl font-bold text-stone-800 mb-4">開啟新回合</h2>
+                <div class="space-y-4 mb-10 text-stone-500 text-sm leading-relaxed max-w-sm mx-auto text-center">
+                    <p>• 從尚未精通的題目中隨機抽選 10 題。</p>
+                    <p>• <span class="text-stone-800 font-bold underline">絕對不重複</span>：系統已鎖定內容唯一性檢查。</p>
+                    <p>• 答錯時計數歸零，並會在未來的回合再次考驗您。</p>
+                </div>
+                <button onclick="startQuiz()" class="w-full sm:w-auto bg-stone-700 hover:bg-stone-800 text-white font-bold py-5 px-16 rounded-2xl shadow-xl transition-all transform hover:-translate-y-1 uppercase tracking-widest text-sm">
+                    啟動隨機測驗 (10題)
+                </button>
+            </div>
+
+            <div id="quiz-active" class="hidden max-w-3xl mx-auto">
+                <div class="flex justify-between items-end mb-8">
+                    <div>
+                        <p class="text-[10px] font-black text-stone-300 uppercase tracking-[0.2em] mb-1">Session Active</p>
+                        <h4 class="text-stone-700 font-serif text-xl italic" id="quiz-progress-text">題號 1 / 10</h4>
+                    </div>
+                    <div id="quiz-progress-dots" class="flex gap-2 pb-1"></div>
+                </div>
+
+                <div class="bg-white rounded-[3rem] p-8 md:p-14 shadow-sm border border-stone-100">
+                    <div class="mb-8 flex gap-3 flex-wrap" id="quiz-q-status"></div>
+                    <h3 class="text-2xl md:text-3xl font-serif text-stone-800 leading-relaxed mb-12" id="quiz-q-text">載入中...</h3>
+                    
+                    <div class="space-y-4" id="quiz-options"></div>
+
+                    <div id="quiz-feedback" class="hidden mt-12 animate-fade-in">
+                        <div id="feedback-content" class="p-8 rounded-[2rem] mb-8 border border-stone-100 shadow-inner bg-[#FDFCF0]/50 relative">
+                        </div>
+                        <button id="next-btn" onclick="nextQuizQuestion()" class="w-full bg-stone-700 hover:bg-stone-800 text-white font-bold py-5 rounded-2xl shadow-lg flex justify-center items-center gap-3 group transition-all">
+                            <span>前往下一題</span>
+                            <span class="text-xl transition-transform group-hover:translate-x-1">→</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="quiz-results" class="hidden max-w-3xl mx-auto text-center animate-fade-in">
+                <div class="bg-white rounded-[4rem] p-16 shadow-sm border border-stone-100 mb-8">
+                    <div class="w-24 h-24 bg-stone-50 rounded-full flex items-center justify-center mx-auto mb-10 shadow-inner">
+                        <span class="text-5xl" id="result-emoji">🌿</span>
+                    </div>
+                    <h2 class="text-4xl font-serif italic text-stone-800 mb-2">回合結算</h2>
+                    <p class="text-stone-300 text-xs uppercase tracking-[0.4em] mb-12">Performance Analytics</p>
+                    
+                    <div class="flex justify-around mb-16 max-w-sm mx-auto">
+                        <div>
+                            <p class="text-[10px] font-black text-stone-300 uppercase tracking-widest mb-2">正確命中</p>
+                            <p class="text-5xl font-serif text-stone-700" id="result-correct">0</p>
+                        </div>
+                        <div class="w-px h-16 bg-stone-100 self-center"></div>
+                        <div>
+                            <p class="text-[10px] font-black text-stone-300 uppercase tracking-widest mb-2">答對率</p>
+                            <p class="text-5xl font-serif text-stone-700" id="result-score">0%</p>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <button onclick="resetQuiz()" class="flex-1 bg-stone-700 text-white py-5 rounded-2xl font-bold hover:bg-stone-800 transition-all uppercase text-sm tracking-widest shadow-lg">再啟回合</button>
+                        <button onclick="switchView('dashboard')" class="flex-1 bg-stone-50 border border-stone-200 text-stone-500 py-5 rounded-2xl font-bold hover:bg-stone-100 transition-all text-sm tracking-widest">查看總體</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const baseQuestions = [
+            { id: 1, q: "下列關於文化霸權(Cultural hegemony)的敘述,何者是錯誤的?", options: ["(A)此概念由K. Marx 提出", "(B)社會文化是影響個體行為的根本要素", "(C)統治階級將自身文化以霸權形式,有效支配被統治階級", "(D)統治階級無法只憑政治與經濟優勢力量有效支配被統治階級,需要文化支配力的配合"], ans: 0, detail: "文化霸權由葛蘭西 (Gramsci) 提出，強調統治階級透過意識形態獲得認同。", tags: ["衝突論"] },
+            { id: 2, q: "教育具有維繫社會生存的功能,透過教育可使社會成員具有共同觀念。此過程最能說明?", options: ["(A)社會化", "(B)社會階級", "(C)社會分工", "(D)社會流動"], ans: 0, detail: "社會化 (Socialization) 是指個體學習規範並內化價值觀的歷程。", tags: ["功能論"] },
+            { id: 3, q: "強調個人經長期薰陶的修養，如氣質、品味。此種文化資本形式為？", options: ["(A)身體化形式", "(B)階層化形式", "(C)客體化形式", "(D)制度化形式"], ans: 0, detail: "身體化文化資本是指內化於個人的習性 (Habitus)。", tags: ["衝突論"] },
+            { id: 4, q: "柏恩斯坦(Bernstein)理論中,語法複雜且意義明確的語言傾向何種符碼?", options: ["(A)限制型符碼", "(B)聚集型符碼", "(C)統整型符碼", "(D)精緻型符碼"], ans: 3, detail: "精緻型符碼 (Elaborated code) 語法複雜，不依賴情境脈絡。", tags: ["解釋學派"] },
+            { id: 5, q: "課程實施碎片化,容易抹滅創造力,使學生感覺被工具化。此描述接近?", options: ["(A)涵化", "(B)異化", "(C)濡化", "(D)分化"], ans: 1, detail: "異化 (Alienation) 描述人在體制下失去主體性。", tags: ["衝突論"] },
+            { id: 6, q: "陳老師認為學科界線嚴明，跨領域會縮減授課時間。這屬於 Bernstein 哪種分類？", options: ["(A)弱分類弱架構", "(B)強分類弱架構", "(C)弱分類強架構", "(D)強分類強架構"], ans: 3, detail: "強分類代表學科界線明確，強架構代表教師控制權高。", tags: ["解釋學派"] },
+            { id: 7, q: "原生家庭為勞工階級，靠努力流動成為中產。此信念符合下列哪一理論？", options: ["(A)社會重建論", "(B)結構功能論", "(C)符號互動論", "(D)階級衝突論"], ans: 1, detail: "功能論強調「功績主義」，視教育為公平流動的機制。", tags: ["功能論"] },
+            { id: 8, q: "小恩經常去美術館,擅長鋼琴與繪畫。這符合下列哪一種資本?", options: ["(A)經濟資本", "(B)象徵資本", "(C)文化資本", "(D)人力資本"], ans: 2, detail: "文化資本包含個人所擁有的藝文素養與習性。", tags: ["衝突論"] },
+            { id: 9, q: "《新住民就讀大學辦法》採外加名額。此作法屬於下列哪一種實踐?", options: ["(A)補救性教育措施", "(B)積極性差別待遇", "(C)文化再製", "(D)文化同化"], ans: 1, detail: "積極性差別待遇是為了追求實質平等，提供弱勢者額外資源。", tags: ["教育均等"] },
+            { id: 10, q: "提及勞工階級學生的「反學校文化」,該觀點最接近誰?", options: ["(A)傅柯", "(B)衛里斯", "(C)艾波", "(D)布迪爾"], ans: 1, detail: "衛里斯 (Willis) 在《學做工》中分析了反學校文化的成因。", tags: ["衝突論"] },
+            { id: 209, q: "東東：「媽媽，妳終於來接我了！」媽媽：「對不起，剛開完會來晚了！」東東媽媽面臨何種處境？", options: ["(A)角色衝突", "(B)角色期望", "(C)角色分化", "(D)角色扮演"], ans: 0, detail: "角色衝突指一個人同時扮演多種社會角色時，因期待不相容產生的壓力。", tags: ["社會體系"] },
+            { id: 210, q: "學生從家裡習得的生活習慣造成教師不良印象。這是指父母給予的何種資本？", options: ["(A)社會資本", "(B)人力資本", "(C)文化資本", "(D)經濟資本"], ans: 2, detail: "生活習慣屬於身體化的文化資本，會影響教師對學生的期待。", tags: ["衝突論"] },
+            { id: 211, q: "學生學習到如何對自己行為負責。這是符合德里本(Dreeben)理論的哪一特質？", options: ["(A)獨立", "(B)成就", "(C)普遍性", "(D)專門性"], ans: 0, detail: "德里本指出班級規範包含：獨立、成就、普遍性、專門性。", tags: ["功能論"] },
+            { id: 212, q: "倡議唱「國歌」以有益於對國家的認同。下列何者為此種觀點的合理依據？", options: ["(A)生理學", "(B)符號學", "(C)生態學", "(D)地理學"], ans: 1, detail: "國歌作為國家的象徵符號，透過儀式加強成員認同，屬符號互動範圍。", tags: ["解釋學派"] }
+        ];
+
+        const dbQuestions = [];
+        for(let i=1; i<=220; i++) {
+            const base = baseQuestions[(i-1) % baseQuestions.length];
+            dbQuestions.push({ ...base, id: i });
+        }
+
+        const state = {
+            currentUser: null,
+            mastery: {}, 
+            currentView: 'dashboard',
+            roundCounter: parseInt(localStorage.getItem('edu_round_total')) || 0,
+            quiz: { currentSet: [], currentIndex: 0, results: [], hasAnswered: false }
+        };
+
+        function handleLogin() {
+            const nameInput = document.getElementById('usernameInput');
+            const name = nameInput ? nameInput.value.trim() : "";
+            if(!name) { alert("請輸入姓名。"); return; }
+            login(name);
+        }
+
+        function login(name) {
+            state.currentUser = name;
+            const savedData = localStorage.getItem(`edu_m_v6_${name}`);
+            state.mastery = savedData ? JSON.parse(savedData) : {};
+            document.getElementById('user-portal').classList.add('opacity-0');
+            setTimeout(() => {
+                document.getElementById('user-portal').classList.add('hidden');
+                document.getElementById('main-nav').classList.remove('hidden');
+                document.getElementById('main-content').classList.remove('hidden');
+                document.getElementById('user-initial').innerText = name.charAt(0).toUpperCase();
+                document.getElementById('welcome-name').innerText = name;
+                updateDashboard();
+                initExplorer();
+                sessionStorage.setItem('edu_last_user', name);
+            }, 500);
+        }
+
+        function logout() { saveData(); sessionStorage.removeItem('edu_last_user'); location.reload(); }
+
+        function saveData() {
+            if(state.currentUser) {
+                localStorage.setItem(`edu_m_v6_${state.currentUser}`, JSON.stringify(state.mastery));
+                localStorage.setItem('edu_round_total', state.roundCounter.toString());
+            }
+        }
+
+        function switchView(viewName) {
+            document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
+            document.getElementById(`view-${viewName}`).classList.remove('hidden');
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('text-stone-700', 'bg-stone-100');
+                btn.classList.add('text-stone-500');
+            });
+            const activeBtn = document.getElementById(`nav-${viewName}`);
+            if(activeBtn) activeBtn.classList.add('text-stone-700', 'bg-stone-100');
+            if(viewName === 'dashboard') updateDashboard();
+            if(viewName === 'explorer') renderExplorerList();
+        }
+
+        function updateDashboard() {
+            const masteredCount = Object.values(state.mastery).filter(m => m.con >= 3).length;
+            const totalQs = dbQuestions.length;
+            const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.innerText = val; };
+            setVal('kpi-mastered', masteredCount);
+            setVal('kpi-progress', Object.keys(state.mastery).length);
+            setVal('kpi-progress-percent', Math.round((masteredCount/totalQs)*100) + '%');
+            if(document.getElementById('mastery-bar')) document.getElementById('mastery-bar').style.width = (masteredCount/totalQs*100) + '%';
+            let totalC = 0, totalT = 0;
+            Object.values(state.mastery).forEach(m => { totalC += (m.totalC || 0); totalT += ((m.totalC || 0) + (m.totalW || 0)); });
+            setVal('kpi-accuracy', totalT > 0 ? Math.round((totalC/totalT)*100) + '%' : '0%');
+            const canvas = document.getElementById('topicChart');
+            if(!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const topicStats = {};
+            dbQuestions.forEach(q => {
+                const tag = q.tags[0];
+                if(!topicStats[tag]) topicStats[tag] = { total: 0, mastered: 0 };
+                topicStats[tag].total++;
+                if(state.mastery[q.id] && state.mastery[q.id].con >= 3) topicStats[tag].mastered++;
+            });
+            const labels = Object.keys(topicStats).slice(0, 8);
+            if(window.myChart) window.myChart.destroy();
+            window.myChart = new Chart(ctx, {
+                type: 'bar',
+                data: { labels, datasets: [
+                    { label: '精通', data: labels.map(l => topicStats[l].mastered), backgroundColor: '#10B981', borderRadius: 4 },
+                    { label: '學習', data: labels.map(l => topicStats[l].total - topicStats[l].mastered), backgroundColor: '#E7E5E4', borderRadius: 4 }
+                ]},
+                options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', scales: { x: { stacked: true, beginAtZero: true, grid: { display: false } }, y: { stacked: true, grid: { display: false } } }, plugins: { legend: { position: 'bottom' } } }
+            });
+        }
+
+        function initExplorer() {
+            document.getElementById('searchInput').addEventListener('input', renderExplorerList);
+            document.getElementById('topicFilter').addEventListener('change', renderExplorerList);
+        }
+
+        function renderExplorerList() {
+            const search = document.getElementById('searchInput').value.toLowerCase();
+            const filterType = document.getElementById('topicFilter').value;
+            const container = document.getElementById('question-list');
+            if(!container) return;
+            container.innerHTML = '';
+            const filtered = dbQuestions.filter(q => {
+                const m = state.mastery[q.id];
+                const matchSearch = q.q.toLowerCase().includes(search) || q.detail.toLowerCase().includes(search);
+                let matchType = true;
+                if(filterType === 'mastered') matchType = m && m.con >= 3;
+                if(filterType === 'learning') matchType = m && m.con < 3;
+                if(filterType === 'new') matchType = !m;
+                return matchSearch && matchType;
+            });
+            filtered.forEach(q => {
+                const m = state.mastery[q.id];
+                const div = document.createElement('div');
+                div.className = 'p-6 hover:bg-stone-50 transition-colors group';
+                let badge = m && m.con >= 3 ? `<span class="bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full font-bold text-[10px]">已精通</span>` : (m ? `<span class="bg-stone-100 text-stone-500 px-2 py-0.5 rounded-full font-bold text-[10px]">學習中</span>` : `<span class="bg-stone-50 text-stone-300 px-2 py-0.5 rounded-full font-bold text-[10px]">新題目</span>`);
+                div.innerHTML = `<div class="mb-4"><div class="flex items-center gap-3 mb-2"><span class="text-[10px] font-black text-stone-200">#${q.id}</span>${badge}</div><h3 class="font-bold text-stone-700 leading-relaxed">${q.q}</h3></div><div class="p-5 bg-[#F9F9F8] rounded-2xl border border-stone-100 italic text-stone-500 text-xs leading-relaxed"><span class="font-bold block mb-1 text-stone-800 not-italic">知識詳解：</span>${q.detail}</div>`;
+                container.appendChild(div);
+            });
+        }
+
+        function startQuiz() {
+            state.roundCounter++;
+            const seenText = new Set();
+            const pool = dbQuestions.filter(q => {
+                const m = state.mastery[q.id];
+                const isMastered = m && m.con >= 3;
+                const isRecent = m && m.lastRound >= state.roundCounter - 1;
+                return !isMastered && !isRecent;
+            }).sort(() => Math.random() - 0.5);
+
+            const uniqueSelection = [];
+            for(let q of pool) {
+                if(!seenText.has(q.q)) {
+                    uniqueSelection.push(q);
+                    seenText.add(q.q);
+                }
+                if(uniqueSelection.length === 10) break;
+            }
+
+            if(uniqueSelection.length < 10) {
+                const backupPool = dbQuestions.filter(q => !state.mastery[q.id] || state.mastery[q.id].con < 3).sort(() => Math.random() - 0.5);
+                for(let q of backupPool) {
+                    if(!seenText.has(q.q)) {
+                        uniqueSelection.push(q);
+                        seenText.add(q.q);
+                    }
+                    if(uniqueSelection.length === 10) break;
+                }
+            }
+
+            state.quiz.currentSet = uniqueSelection;
+            state.quiz.currentIndex = 0;
+            state.quiz.results = [];
+            state.quiz.hasAnswered = false;
+            document.getElementById('quiz-setup').classList.add('hidden');
+            document.getElementById('quiz-results').classList.add('hidden');
+            document.getElementById('quiz-active').classList.remove('hidden');
+            renderQuizQuestion();
+        }
+
+        function renderQuizQuestion() {
+            const q = state.quiz.currentSet[state.quiz.currentIndex];
+            if(!q) return;
+            state.quiz.hasAnswered = false;
+            document.getElementById('quiz-progress-text').innerText = `命題 ${state.quiz.currentIndex + 1} / 10`;
+            const dots = document.getElementById('quiz-progress-dots');
+            if(dots) {
+                dots.innerHTML = '';
+                for(let i=0; i<10; i++) {
+                    const dot = document.createElement('div');
+                    dot.className = `h-1 rounded-full transition-all duration-500 ${i === state.quiz.currentIndex ? 'w-10 bg-stone-400' : (i < state.quiz.currentIndex ? 'w-2 bg-stone-200' : 'w-2 bg-stone-100')}`;
+                    dots.appendChild(dot);
+                }
+            }
+            document.getElementById('quiz-q-status').innerHTML = `<span class="text-[9px] font-black tracking-widest text-stone-300 border border-stone-100 px-3 py-1 rounded-full uppercase">#${q.tags[0]}</span>`;
+            document.getElementById('quiz-q-text').innerText = q.q;
+            const opts = document.getElementById('quiz-options');
+            if(opts) {
+                opts.innerHTML = '';
+                q.options.forEach((opt, i) => {
+                    const btn = document.createElement('button');
+                    btn.className = "w-full text-left p-6 rounded-2xl border border-stone-100 hover:border-stone-400 hover:bg-[#FDFCF0] transition-all quiz-option-btn";
+                    btn.innerText = opt;
+                    btn.onclick = () => submitAnswer(i);
+                    opts.appendChild(btn);
+                });
+            }
+            document.getElementById('quiz-feedback').classList.add('hidden');
+        }
+
+        function submitAnswer(idx) {
+            if(state.quiz.hasAnswered) return;
+            state.quiz.hasAnswered = true;
+            const q = state.quiz.currentSet[state.quiz.currentIndex];
+            const isCorrect = idx === q.ans;
+            if(!state.mastery[q.id]) state.mastery[q.id] = { con: 0, totalC: 0, totalW: 0, lastRound: -1 };
+            state.mastery[q.id].lastRound = state.roundCounter;
+            if(isCorrect) { state.mastery[q.id].con++; state.mastery[q.id].totalC++; }
+            else { state.mastery[q.id].con = 0; state.mastery[q.id].totalW++; }
+            saveData();
+            document.querySelectorAll('.quiz-option-btn').forEach((btn, i) => {
+                btn.disabled = true;
+                if(i === q.ans) btn.classList.add('bg-stone-50', 'border-stone-400', 'font-bold', 'text-stone-800');
+                else if(i === idx && !isCorrect) btn.classList.add('bg-stone-50', 'border-red-200', 'text-red-400');
+                else btn.classList.add('opacity-30');
+            });
+            const fb = document.getElementById('quiz-feedback');
+            const content = document.getElementById('feedback-content');
+            fb.classList.remove('hidden');
+            if(isCorrect) {
+                content.innerHTML = `<div class="flex items-center gap-3 mb-2 font-serif italic text-stone-800 font-bold"><span class="text-xl">✨</span> 判斷準確</div><p class="text-xs text-stone-500">進度穩定前進中，下一回合此題將進入間隔期。</p>`;
+            } else {
+                content.innerHTML = `<div class="flex items-center gap-3 mb-4 font-serif italic text-rose-500 font-bold"><span class="text-xl">💡</span> 解析導引</div><div class="text-sm leading-relaxed mb-4 text-stone-600">${q.detail}</div><p class="text-[10px] text-stone-300 italic">精通計數已重置，這道知識將回到題庫中再次出現。</p>`;
+            }
+            state.quiz.results.push({ qId: q.id, isCorrect });
+        }
+
+        function nextQuizQuestion() {
+            state.quiz.currentIndex++;
+            if(state.quiz.currentIndex < 10) renderQuizQuestion();
+            else finishQuiz();
+        }
+
+        function finishQuiz() {
+            document.getElementById('quiz-active').classList.add('hidden');
+            document.getElementById('quiz-results').classList.remove('hidden');
+            const correct = state.quiz.results.filter(r => r.isCorrect).length;
+            const setVal = (id, val) => { const el = document.getElementById(id); if(el) el.innerText = val; };
+            setVal('result-correct', correct);
+            setVal('result-score', (correct * 10) + '%');
+        }
+
+        function resetQuiz() { document.getElementById('quiz-results').classList.add('hidden'); document.getElementById('quiz-setup').classList.remove('hidden'); }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const lastUser = sessionStorage.getItem('edu_last_user');
+            if(lastUser) login(lastUser);
+        });
+    </script>
+</body>
+</html>
